@@ -1,4 +1,4 @@
-import React, { Fragment, useContext, useEffect, useRef } from 'react';
+import React, { Fragment, useContext, useEffect, useMemo, useRef } from 'react';
 import { type IProps } from '../../Types';
 import { EditorContext, type PreviewType, type ContextStore } from '../../Context';
 import { ICommand } from '../../commands/';
@@ -62,64 +62,73 @@ export function ToolbarItems(props: IToolbarProps) {
     }
   }, [fullscreen, originalOverflow, overflow]);
 
-  return (
-    <ul>
-      {(props.commands || []).map((item, idx) => {
-        if (item.keyCommand === 'divider') {
-          return <li key={idx} {...item.liProps} className={`${prefixCls}-toolbar-divider`} />;
-        }
-        if (!item.keyCommand) return <Fragment key={idx} />;
-        const activeBtn =
-          (fullscreen && item.keyCommand === 'fullscreen') || (item.keyCommand === 'preview' && preview === item.value);
-        const childNode =
-          item.children && typeof item.children === 'function'
-            ? item.children({
-                getState: () => commandOrchestrator!.getState(),
-                textApi: commandOrchestrator ? commandOrchestrator!.textApi : undefined,
-                close: () => handleClick({}, item.groupName),
-                execute: () => handleClick({ execute: item.execute }),
-                dispatch,
-              })
-            : undefined;
-        const disabled = barPopup && preview && preview === 'preview' && !/(preview|fullscreen)/.test(item.keyCommand);
-        const render = components?.toolbar || item.render;
-        const com = (
-          render && typeof render === 'function' ? render(item, !!disabled, handleClick, idx) : null
-        ) as React.ReactElement;
-        return (
-          <li key={idx} {...item.liProps} className={activeBtn ? `active` : ''}>
-            {com && React.isValidElement(com) && com}
-            {!com && !item.buttonProps && item.icon}
-            {!com &&
-              item.buttonProps &&
-              React.createElement(
-                'button',
-                {
-                  type: 'button',
-                  key: idx,
-                  disabled,
-                  'data-name': item.name,
-                  ...item.buttonProps,
-                  onClick: (evn: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
-                    evn.stopPropagation();
-                    handleClick(item, item.groupName);
+  // The toolbar consumes the whole editor context but only depends on the
+  // values below — memoise the rendered list so typing/scrolling (markdown and
+  // scroll position updates) don't rebuild every toolbar item.
+  return useMemo(
+    () => (
+      <ul>
+        {(props.commands || []).map((item, idx) => {
+          if (item.keyCommand === 'divider') {
+            return <li key={idx} {...item.liProps} className={`${prefixCls}-toolbar-divider`} />;
+          }
+          if (!item.keyCommand) return <Fragment key={idx} />;
+          const activeBtn =
+            (fullscreen && item.keyCommand === 'fullscreen') ||
+            (item.keyCommand === 'preview' && preview === item.value);
+          const childNode =
+            item.children && typeof item.children === 'function'
+              ? item.children({
+                  getState: () => commandOrchestrator!.getState(),
+                  textApi: commandOrchestrator ? commandOrchestrator!.textApi : undefined,
+                  close: () => handleClick({}, item.groupName),
+                  execute: () => handleClick({ execute: item.execute }),
+                  dispatch,
+                })
+              : undefined;
+          const disabled =
+            barPopup && preview && preview === 'preview' && !/(preview|fullscreen)/.test(item.keyCommand);
+          const render = components?.toolbar || item.render;
+          const com = (
+            render && typeof render === 'function' ? render(item, !!disabled, handleClick, idx) : null
+          ) as React.ReactElement;
+          return (
+            <li key={idx} {...item.liProps} className={activeBtn ? `active` : ''}>
+              {com && React.isValidElement(com) && com}
+              {!com && !item.buttonProps && item.icon}
+              {!com &&
+                item.buttonProps &&
+                React.createElement(
+                  'button',
+                  {
+                    type: 'button',
+                    key: idx,
+                    disabled,
+                    'data-name': item.name,
+                    ...item.buttonProps,
+                    onClick: (evn: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
+                      evn.stopPropagation();
+                      handleClick(item, item.groupName);
+                    },
                   },
-                },
-                item.icon,
+                  item.icon,
+                )}
+              {item.children && (
+                <Child
+                  overflow={overflow}
+                  groupName={item.groupName}
+                  prefixCls={prefixCls}
+                  children={childNode}
+                  commands={Array.isArray(item.children) ? item.children : undefined}
+                />
               )}
-            {item.children && (
-              <Child
-                overflow={overflow}
-                groupName={item.groupName}
-                prefixCls={prefixCls}
-                children={childNode}
-                commands={Array.isArray(item.children) ? item.children : undefined}
-              />
-            )}
-          </li>
-        );
-      })}
-    </ul>
+            </li>
+          );
+        })}
+      </ul>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [props.commands, prefixCls, overflow, fullscreen, preview, barPopup, components, commandOrchestrator, dispatch],
   );
 }
 
@@ -127,7 +136,7 @@ export default function Toolbar(props: IToolbarProps = {}) {
   const { prefixCls, isChild, className } = props;
   const { commands, extraCommands } = useContext(EditorContext);
   return (
-    <div className={`${prefixCls}-toolbar ${className}`}>
+    <div className={`${prefixCls}-toolbar ${className || ''}`.trim()}>
       <ToolbarItems {...props} commands={props.commands || commands || []} />
       {!isChild && <ToolbarItems {...props} commands={extraCommands || []} />}
     </div>

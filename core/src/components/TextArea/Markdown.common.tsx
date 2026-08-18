@@ -1,49 +1,6 @@
-import React, { useContext, useEffect } from 'react';
-import { rehype } from 'rehype';
-import rehypePrism from 'rehype-prism-plus/common';
-import { type IProps } from '../../Types';
-import { EditorContext } from '../../Context';
-
-function html2Escape(sHtml: string) {
-  return sHtml.replace(
-    /[<&"]/g,
-    (c: string) => (({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }) as Record<string, string>)[c],
-  );
-}
-
-export interface MarkdownProps extends IProps, React.HTMLAttributes<HTMLPreElement> {}
-
-export default function Markdown(props: MarkdownProps) {
-  const { prefixCls } = props;
-  const { markdown = '', highlightEnable, dispatch } = useContext(EditorContext);
-  const preRef = React.createRef<HTMLPreElement>();
-  useEffect(() => {
-    if (preRef.current && dispatch) {
-      dispatch({ textareaPre: preRef.current });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  if (!markdown) {
-    return <pre ref={preRef} className={`${prefixCls}-text-pre wmde-markdown-color`} />;
-  }
-  let mdStr = `<pre class="language-markdown ${prefixCls}-text-pre wmde-markdown-color"><code class="language-markdown">${html2Escape(
-    String.raw`${markdown}`,
-  )}\n</code></pre>`;
-
-  if (highlightEnable) {
-    try {
-      mdStr = rehype()
-        .data('settings', { fragment: true })
-        // https://github.com/uiwjs/react-md-editor/issues/593
-        // @ts-ignore
-        .use(rehypePrism, { ignoreMissing: true })
-        .processSync(mdStr)
-        .toString();
-    } catch (error) {}
-  }
-
-  return React.createElement('div', {
-    className: 'wmde-markdown-color',
-    dangerouslySetInnerHTML: { __html: mdStr || '' },
-  });
-}
+/**
+ * The editing pane only ever highlights the `markdown` grammar, so the
+ * "common" build no longer needs its own implementation — kept as a re-export
+ * for compatibility with deep imports.
+ */
+export { default, type MarkdownProps } from './Markdown';

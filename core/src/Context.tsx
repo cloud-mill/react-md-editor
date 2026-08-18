@@ -32,7 +32,14 @@ export interface ContextStore {
 export type ExecuteCommandState = Pick<ContextStore, 'fullscreen' | 'preview' | 'highlightEnable'>;
 
 export function reducer(state: ContextStore, action: ContextStore) {
-  return { ...state, ...action };
+  for (const key in action) {
+    if (!Object.is(state[key], action[key])) {
+      return { ...state, ...action };
+    }
+  }
+  // Nothing actually changed — keep the same reference so React can bail out
+  // of re-rendering the whole editor tree.
+  return state;
 }
 
 export const EditorContext = React.createContext<ContextStore>({ markdown: '' });

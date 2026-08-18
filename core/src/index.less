@@ -1,4 +1,4 @@
-@md-editor:~ "w-md-editor";
+@md-editor: ~'w-md-editor';
 
 .@{md-editor} {
   text-align: left;
@@ -9,7 +9,9 @@
   --md-editor-font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --md-editor-background-color: var(--color-canvas-default, #ffffff);
   --md-editor-box-shadow-color: var(--color-border-default, #d0d7de);
-  box-shadow: 0 0 0 1px var(--md-editor-box-shadow-color), 0 0 0 var(--md-editor-box-shadow-color),
+  box-shadow:
+    0 0 0 1px var(--md-editor-box-shadow-color),
+    0 0 0 var(--md-editor-box-shadow-color),
     0 1px 1px var(--md-editor-box-shadow-color);
   background-color: var(--md-editor-background-color);
   font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -68,6 +70,13 @@
     }
     .contains-task-list li.task-list-item {
       list-style: none;
+    }
+    // Skip layout and paint for off-screen preview content so re-rendering a
+    // large document costs O(visible) instead of O(document). `auto` keeps
+    // each element's last rendered size once it has been on screen.
+    .wmde-markdown > * {
+      content-visibility: auto;
+      contain-intrinsic-size: auto 2em;
     }
   }
   &-show-preview &-input {

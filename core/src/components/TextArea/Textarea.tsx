@@ -1,4 +1,4 @@
-import React, { useContext, useEffect } from 'react';
+import React, { useContext, useEffect, useMemo } from 'react';
 import { type IProps } from '../../Types';
 import { EditorContext, type ExecuteCommandState } from '../../Context';
 import { TextAreaCommandOrchestrator } from '../../commands/';
@@ -9,7 +9,7 @@ import './index.less';
 export interface TextAreaProps extends Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value'>, IProps {}
 
 export default function Textarea(props: TextAreaProps) {
-  const { prefixCls, onChange, ...other } = props;
+  const { prefixCls, onChange, onKeyDown, ...other } = props;
   const {
     markdown,
     commands,
@@ -22,11 +22,10 @@ export default function Textarea(props: TextAreaProps) {
     autoFocusEnd,
     textareaWarp,
     dispatch,
-    ...otherStore
   } = useContext(EditorContext);
   const textRef = React.useRef<HTMLTextAreaElement>(null);
   const executeRef = React.useRef<TextAreaCommandOrchestrator>();
-  const statesRef = React.useRef<ExecuteCommandState>({ fullscreen, preview });
+  const statesRef = React.useRef<ExecuteCommandState>({ fullscreen, preview, highlightEnable });
 
   useEffect(() => {
     statesRef.current = { fullscreen, preview, highlightEnable };
@@ -55,24 +54,15 @@ export default function Textarea(props: TextAreaProps) {
         }
       }, 0);
     }
-  }, [textareaWarp]);
+  }, [autoFocusEnd, textareaWarp]);
 
-  const onKeyDown = (e: KeyboardEvent | React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const allCommands = useMemo(() => [...(commands || []), ...(extraCommands || [])], [commands, extraCommands]);
+
+  const onKeyDownHandle = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     handleKeyDown(e, tabSize, defaultTabEnable);
-    shortcuts(e, [...(commands || []), ...(extraCommands || [])], executeRef.current, dispatch, statesRef.current);
+    shortcuts(e, allCommands, executeRef.current, dispatch, statesRef.current);
+    onKeyDown && onKeyDown(e);
   };
-  useEffect(() => {
-    if (textRef.current) {
-      textRef.current.addEventListener('keydown', onKeyDown);
-    }
-    return () => {
-      if (textRef.current) {
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        textRef.current.removeEventListener('keydown', onKeyDown);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <textarea
@@ -84,6 +74,7 @@ export default function Textarea(props: TextAreaProps) {
       ref={textRef}
       className={`${prefixCls}-text-input ${other.className ? other.className : ''}`}
       value={markdown}
+      onKeyDown={onKeyDownHandle}
       onChange={(e) => {
         dispatch && dispatch({ markdown: e.target.value });
         onChange && onChange(e);

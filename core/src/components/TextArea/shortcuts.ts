@@ -1,15 +1,18 @@
 import { ICommand, TextAreaCommandOrchestrator } from '../../commands/';
 import { ContextStore, ExecuteCommandState } from '../../Context';
 
-function getCommands(data: ICommand[] = [], resulte: Record<string, ICommand> = {}): Record<string, ICommand> {
+function collectShortcutCommands(
+  data: ICommand[] = [],
+  result: Record<string, ICommand> = {},
+): Record<string, ICommand> {
   data.forEach((item) => {
     if (item.children && Array.isArray(item.children)) {
-      resulte = { ...resulte, ...getCommands(item.children || []) };
+      collectShortcutCommands(item.children, result);
     } else if (item.keyCommand && item.shortcuts && item.execute) {
-      resulte[item.shortcuts.toLocaleLowerCase()] = item;
+      result[item.shortcuts.toLocaleLowerCase()] = item;
     }
   });
-  return resulte;
+  return result;
 }
 
 export default function shortcutsHandle(
@@ -19,7 +22,7 @@ export default function shortcutsHandle(
   dispatch?: React.Dispatch<ContextStore>,
   state?: ExecuteCommandState,
 ) {
-  const data = getCommands(commands || []);
+  const data = collectShortcutCommands(commands || []);
   const shortcuts: string[] = [];
   if (e.altKey) {
     shortcuts.push('alt');
@@ -43,8 +46,7 @@ export default function shortcutsHandle(
     return;
   }
 
-  let equal = !!data[shortcuts.join('+')];
-  let command = equal ? data[shortcuts.join('+')] : undefined;
+  let command = data[shortcuts.join('+')];
 
   Object.keys(data).forEach((item) => {
     const isequal = item.split('+').every((v) => {
