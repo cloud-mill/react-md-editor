@@ -49,7 +49,7 @@ export default function handleKeyDown(
   defaultTabEnable: boolean = false,
 ) {
   const target = e.target as HTMLTextAreaElement;
-  const starVal = target.value.substr(0, target.selectionStart);
+  const starVal = target.value.slice(0, target.selectionStart);
   const valArr = starVal.split('\n');
   const currentLineStr = valArr[valArr.length - 1];
   const textArea = new TextAreaTextApi(target);
@@ -59,7 +59,8 @@ export default function handleKeyDown(
    */
   if (!defaultTabEnable && e.code && e.code.toLowerCase() === 'tab') {
     stopPropagation(e);
-    const space = new Array(tabSize + 1).join('  ');
+    // `tabSize` is the number of space characters to insert.
+    const space = new Array(tabSize + 1).join(' ');
     if (target.selectionStart !== target.selectionEnd) {
       const _star = target.value.substring(0, target.selectionStart).split('\n');
       const _end = target.value.substring(0, target.selectionEnd).split('\n');
@@ -102,7 +103,7 @@ export default function handleKeyDown(
   } else if (
     e.keyCode === 13 &&
     e.code.toLowerCase() === 'enter' &&
-    (/^(-|\*)\s/.test(currentLineStr) || /^\d+.\s/.test(currentLineStr)) &&
+    (/^(-|\*)\s/.test(currentLineStr) || /^\d+\.\s/.test(currentLineStr)) &&
     !e.shiftKey
   ) {
     /**
@@ -123,7 +124,7 @@ export default function handleKeyDown(
       startStr = '\n- [ ] ';
     }
 
-    if (/^\d+.\s/.test(currentLineStr)) {
+    if (/^\d+\.\s/.test(currentLineStr)) {
       startStr = `\n${parseInt(currentLineStr) + 1}. `;
     }
     return insertTextAtPosition(target, startStr);

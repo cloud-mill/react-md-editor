@@ -25,8 +25,7 @@ export type RenderTextareaHandle = {
 };
 
 export interface ITextAreaProps
-  extends Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onScroll'>,
-    IProps {
+  extends Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onScroll'>, IProps {
   value?: string;
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
   renderTextarea?: (
@@ -42,6 +41,10 @@ export type TextAreaRef = {
 
 type MarkdownComponent = React.ComponentType<{ prefixCls?: string }>;
 
+const emptyTextStyle: CSS.Properties = {};
+const plainTextStyle: CSS.Properties = { WebkitTextFillColor: 'initial', overflow: 'auto' };
+const renderTextareaStyle: CSS.Properties = { WebkitTextFillColor: 'inherit', overflow: 'auto' };
+
 export function createTextArea(options?: { Markdown?: MarkdownComponent; useMinHeight?: boolean }) {
   const MarkdownComponent = options?.Markdown;
   const useMinHeight = options?.useMinHeight ?? false;
@@ -52,12 +55,20 @@ export function createTextArea(options?: { Markdown?: MarkdownComponent; useMinH
       useContext(EditorContext);
     const textRef = React.useRef<HTMLTextAreaElement>(null);
     const executeRef = React.useRef<TextAreaCommandOrchestrator>();
-    const warp = React.createRef<HTMLDivElement>();
+    const warp = React.useRef<HTMLDivElement>(null);
     useEffect(() => {
       const state: ContextStore = {};
       if (warp.current) {
         state.textareaWarp = warp.current || undefined;
         warp.current.scrollTop = scrollTop || 0;
+      }
+      // Only populated in the `renderTextarea` path — the default path's
+      // orchestrator is created by the inner <Textarea /> component.
+      if (textRef.current) {
+        const commandOrchestrator = new TextAreaCommandOrchestrator(textRef.current);
+        executeRef.current = commandOrchestrator;
+        state.textarea = textRef.current;
+        state.commandOrchestrator = commandOrchestrator;
       }
       if (dispatch) {
         dispatch({ ...state });
@@ -65,17 +76,7 @@ export function createTextArea(options?: { Markdown?: MarkdownComponent; useMinH
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    useEffect(() => {
-      if (textRef.current && dispatch) {
-        const commandOrchestrator = new TextAreaCommandOrchestrator(textRef.current);
-        executeRef.current = commandOrchestrator;
-        dispatch({ textarea: textRef.current, commandOrchestrator });
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const textStyle: CSS.Properties =
-      MarkdownComponent && highlightEnable ? {} : { WebkitTextFillColor: 'initial', overflow: 'auto' };
+    const textStyle: CSS.Properties = MarkdownComponent && highlightEnable ? emptyTextStyle : plainTextStyle;
 
     return (
       <div ref={warp} className={`${prefixCls}-area ${className || ''}`} onScroll={onScroll}>
@@ -91,10 +92,7 @@ export function createTextArea(options?: { Markdown?: MarkdownComponent; useMinH
                   spellCheck: 'false',
                   autoCapitalize: 'off',
                   className: `${prefixCls}-text-input`,
-                  style: {
-                    WebkitTextFillColor: 'inherit',
-                    overflow: 'auto',
-                  },
+                  style: renderTextareaStyle,
                 },
                 {
                   dispatch,

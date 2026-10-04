@@ -1,4 +1,4 @@
-@md-editor:~ "w-md-editor";
+@md-editor: ~'w-md-editor';
 
 .@{md-editor} {
   &-area {
@@ -43,6 +43,12 @@
       word-break: inherit;
       word-break: normal;
       padding: 0;
+    }
+    &-block {
+      /* Each highlight block is an independent formatting context so a
+         keystroke only re-runs line layout for the edited block. */
+      display: block;
+      contain: content;
     }
     &-pre {
       position: relative;

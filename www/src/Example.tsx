@@ -10,6 +10,33 @@ const Toolbar = styled.div`
 
 let count = 1;
 
+// Keep these referentially stable — recreating `previewOptions` on every
+// render would invalidate the editor's memoized preview on each keystroke.
+const previewOptions: MDEditorProps['previewOptions'] = {
+  rehypePlugins: [
+    [
+      rehypeSanitize,
+      {
+        ...defaultSchema,
+        attributes: {
+          ...defaultSchema.attributes,
+          span: [
+            // @ts-ignore
+            ...(defaultSchema.attributes.span || []),
+            // List of all allowed tokens:
+            ['className'],
+          ],
+          code: [['className']],
+        },
+      },
+    ],
+  ],
+};
+
+const textareaProps: MDEditorProps['textareaProps'] = {
+  placeholder: 'Please enter Markdown text',
+};
+
 const Example = (props = {} as { mdStr: string }) => {
   const [state, setVisible] = React.useState<MDEditorProps>({
     visibleDragbar: true,
@@ -33,35 +60,14 @@ const Example = (props = {} as { mdStr: string }) => {
         autoFocus
         value={state.value}
         overflow={state.overflow}
-        previewOptions={{
-          rehypePlugins: [
-            [
-              rehypeSanitize,
-              {
-                ...defaultSchema,
-                attributes: {
-                  ...defaultSchema.attributes,
-                  span: [
-                    // @ts-ignore
-                    ...(defaultSchema.attributes.span || []),
-                    // List of all allowed tokens:
-                    ['className'],
-                  ],
-                  code: [['className']],
-                },
-              },
-            ],
-          ],
-        }}
+        previewOptions={previewOptions}
         height={400}
         highlightEnable={state.highlightEnable}
         hideToolbar={!state.hideToolbar}
         enableScroll={state.enableScroll}
         toolbarBottom={state.toolbarBottom}
         visibleDragbar={state.visibleDragbar}
-        textareaProps={{
-          placeholder: 'Please enter Markdown text',
-        }}
+        textareaProps={textareaProps}
         preview={state.preview}
         onChange={(newValue = '') => {
           setVisible({ ...state, value: newValue });

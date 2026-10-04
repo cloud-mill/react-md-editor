@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { type IProps } from '../../Types';
 import './index.less';
 
@@ -9,76 +9,95 @@ export interface IDragBarProps extends IProps {
   onChange: (value: number) => void;
 }
 
+const dragIcon = (
+  <svg viewBox="0 0 512 512" height="100%">
+    <path
+      fill="currentColor"
+      d="M304 256c0 26.5-21.5 48-48 48s-48-21.5-48-48 21.5-48 48-48 48 21.5 48 48zm120-48c-26.5 0-48 21.5-48 48s21.5 48 48 48 48-21.5 48-48-21.5-48-48-48zm-336 0c-26.5 0-48 21.5-48 48s21.5 48 48 48 48-21.5 48-48-21.5-48-48-48z"
+    />
+  </svg>
+);
+
+function getClientY(event: Event): number | undefined {
+  const mouseY = (event as MouseEvent).clientY;
+  if (typeof mouseY === 'number') return mouseY;
+  return (event as TouchEvent).changedTouches?.[0]?.clientY;
+}
+
 const DragBar: React.FC<IDragBarProps> = (props) => {
-  const { prefixCls, onChange } = props || {};
+  const { prefixCls, height, minHeight, maxHeight, onChange } = props;
   const $dom = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ height: number; dragY: number }>();
-  const heightRef = useRef(props.height);
+  // Handlers are bound once on mount; read the latest props through a ref so
+  // height/minHeight/maxHeight/onChange updates are never stale.
+  const propsRef = useRef(props);
+  propsRef.current = props;
+
+  const clampAndChange = (newHeight: number) => {
+    const { minHeight, maxHeight, onChange } = propsRef.current;
+    const next = Math.min(Math.max(newHeight, minHeight), maxHeight);
+    if (next !== propsRef.current.height) {
+      onChange(next);
+    }
+  };
 
   useEffect(() => {
-    if (heightRef.current !== props.height) {
-      heightRef.current = props.height;
-    }
-  }, [props.height]);
-
-  function handleMouseMove(event: Event) {
-    if (dragRef.current) {
-      const clientY =
-        (event as unknown as MouseEvent).clientY || (event as unknown as TouchEvent).changedTouches[0]?.clientY;
-      const newHeight = dragRef.current.height + clientY - dragRef.current.dragY;
-      if (newHeight >= props.minHeight && newHeight <= props.maxHeight) {
-        onChange && onChange(dragRef.current.height + (clientY - dragRef.current.dragY));
-      }
-    }
-  }
-  function handleMouseUp() {
-    dragRef.current = undefined;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-    $dom.current?.removeEventListener('touchmove', handleMouseMove);
-    $dom.current?.removeEventListener('touchend', handleMouseUp);
-  }
-  function handleMouseDown(event: Event) {
-    event.preventDefault();
-    const clientY =
-      (event as unknown as MouseEvent).clientY || (event as unknown as TouchEvent).changedTouches[0]?.clientY;
-    dragRef.current = {
-      height: heightRef.current,
-      dragY: clientY,
+    const dom = $dom.current;
+    if (!dom) return;
+    const handleMove = (event: Event) => {
+      if (!dragRef.current) return;
+      const clientY = getClientY(event);
+      if (typeof clientY !== 'number') return;
+      clampAndChange(dragRef.current.height + clientY - dragRef.current.dragY);
     };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    $dom.current?.addEventListener('touchmove', handleMouseMove, { passive: false });
-    $dom.current?.addEventListener('touchend', handleMouseUp, { passive: false });
-  }
-
-  useEffect(() => {
-    if (document) {
-      $dom.current?.addEventListener('touchstart', handleMouseDown, { passive: false });
-      $dom.current?.addEventListener('mousedown', handleMouseDown);
-    }
+    const handleUp = () => {
+      dragRef.current = undefined;
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+      dom.removeEventListener('touchmove', handleMove);
+      dom.removeEventListener('touchend', handleUp);
+    };
+    const handleDown = (event: Event) => {
+      event.preventDefault();
+      const clientY = getClientY(event);
+      if (typeof clientY !== 'number') return;
+      dragRef.current = { height: propsRef.current.height, dragY: clientY };
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleUp);
+      dom.addEventListener('touchmove', handleMove, { passive: false });
+      dom.addEventListener('touchend', handleUp, { passive: false });
+    };
+    dom.addEventListener('mousedown', handleDown);
+    dom.addEventListener('touchstart', handleDown, { passive: false });
     return () => {
-      if (document) {
-        $dom.current?.removeEventListener('touchstart', handleMouseDown);
-        document.removeEventListener('mousemove', handleMouseMove);
-      }
+      dom.removeEventListener('mousedown', handleDown);
+      dom.removeEventListener('touchstart', handleDown);
+      handleUp();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const svg = useMemo(
-    () => (
-      <svg viewBox="0 0 512 512" height="100%">
-        <path
-          fill="currentColor"
-          d="M304 256c0 26.5-21.5 48-48 48s-48-21.5-48-48 21.5-48 48-48 48 21.5 48 48zm120-48c-26.5 0-48 21.5-48 48s21.5 48 48 48 48-21.5 48-48-21.5-48-48-48zm-336 0c-26.5 0-48 21.5-48 48s21.5 48 48 48 48-21.5 48-48-21.5-48-48-48z"
-        />
-      </svg>
-    ),
-    [],
-  );
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    const step = (event.shiftKey ? 30 : 10) * (event.key === 'ArrowUp' ? -1 : 1);
+    clampAndChange(propsRef.current.height + step);
+  };
+
   return (
-    <div className={`${prefixCls}-bar`} ref={$dom}>
-      {svg}
+    <div
+      className={`${prefixCls}-bar`}
+      ref={$dom}
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize the editor"
+      aria-valuemin={minHeight}
+      aria-valuemax={maxHeight}
+      aria-valuenow={height}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
+      {dragIcon}
     </div>
   );
 };

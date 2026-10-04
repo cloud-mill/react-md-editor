@@ -1,4 +1,4 @@
-import React, { useEffect, useReducer, useMemo, useRef, useImperativeHandle } from 'react';
+import React, { useCallback, useEffect, useReducer, useMemo, useRef, useState, useImperativeHandle } from 'react';
 import { ToolbarVisibility } from './components/Toolbar/';
 import DragBar from './components/DragBar/';
 import { getCommands, getExtraCommands, type ICommand, type TextState, TextAreaCommandOrchestrator } from './commands/';
@@ -17,6 +17,27 @@ export interface RefMDEditor extends ContextStore {}
 type PreviewComponent = React.ComponentType<any>;
 type TextAreaComponent = React.ComponentType<any>;
 
+const defaultPreviewOptions: NonNullable<MDEditorProps['previewOptions']> = {};
+
+// On React 18+ the preview re-render is deferred so keystrokes stay responsive
+// while the preview catches up; on older React versions it renders in the same
+// pass (the previous behaviour). Resolved once at module load, so the hook
+// call order is stable.
+const useDeferredValueCompat: <T>(value: T) => T = (React as any).useDeferredValue || (<T,>(value: T): T => value);
+
+// Delay before the latest scroll position is committed to the store. Scrolling
+// itself is synchronised imperatively; the store only needs the settled value
+// (it is read back when the textarea remounts, e.g. after a preview toggle).
+const SCROLL_COMMIT_DELAY = 80;
+
+// Above this document size the live preview stops tracking every keystroke and
+// re-renders on a short typing pause instead. Deferred rendering alone is not
+// enough at this scale: React eventually force-flushes a starved deferred
+// update synchronously, which puts the whole-document markdown parse back on
+// the keystroke path.
+const LARGE_DOCUMENT_SIZE = 100_000;
+const LARGE_DOCUMENT_PREVIEW_DELAY = 250;
+
 export function createMDEditor<
   TMarkdownPreview extends PreviewComponent,
   TTextArea extends TextAreaComponent,
@@ -31,10 +52,10 @@ export function createMDEditor<
         prefixCls = 'w-md-editor',
         className,
         value: propsValue,
-        commands = getCommands(),
+        commands: commandsProp,
         commandsFilter,
         direction,
-        extraCommands = getExtraCommands(),
+        extraCommands: extraCommandsProp,
         height = 200,
         enableScroll = true,
         visibleDragbar = typeof props.visiableDragbar === 'boolean' ? props.visiableDragbar : true,
@@ -42,7 +63,7 @@ export function createMDEditor<
         preview: previewType = 'live',
         fullscreen = false,
         overflow = true,
-        previewOptions = {},
+        previewOptions = defaultPreviewOptions,
         textareaProps,
         maxHeight = 1200,
         minHeight = 100,
@@ -59,13 +80,21 @@ export function createMDEditor<
         renderTextarea,
         ...other
       } = props || {};
-      const cmds = commands
-        .map((item) => (commandsFilter ? commandsFilter(item, false) : item))
-        .filter(Boolean) as ICommand[];
-      const extraCmds = extraCommands
-        .map((item) => (commandsFilter ? commandsFilter(item, true) : item))
-        .filter(Boolean) as ICommand[];
-      let [state, dispatch] = useReducer(reducer, {
+      const commands = useMemo(() => commandsProp ?? getCommands(), [commandsProp]);
+      const extraCommands = useMemo(() => extraCommandsProp ?? getExtraCommands(), [extraCommandsProp]);
+      const cmds = useMemo(
+        () =>
+          commands.map((item) => (commandsFilter ? commandsFilter(item, false) : item)).filter(Boolean) as ICommand[],
+        [commands, commandsFilter],
+      );
+      const extraCmds = useMemo(
+        () =>
+          extraCommands
+            .map((item) => (commandsFilter ? commandsFilter(item, true) : item))
+            .filter(Boolean) as ICommand[],
+        [extraCommands, commandsFilter],
+      );
+      const [state, dispatch] = useReducer(reducer, {
         markdown: propsValue,
         preview: previewType,
         components,
@@ -85,8 +114,8 @@ export function createMDEditor<
       const previewRef = useRef<HTMLDivElement>(null);
       const enableScrollRef = useRef(enableScroll);
 
-      useImperativeHandle(ref, () => ({ ...state, container: container.current, dispatch }));
-      useMemo(() => (enableScrollRef.current = enableScroll), [enableScroll]);
+      useImperativeHandle(ref, () => ({ ...state, container: container.current, dispatch }), [state]);
+      enableScrollRef.current = enableScroll;
       useEffect(() => {
         const stateInit: ContextStore = {};
         if (container.current) {
@@ -150,20 +179,29 @@ export function createMDEditor<
       const textareaDomRef = useRef<HTMLDivElement>();
       const active = useRef<'text' | 'preview'>('preview');
       const initScroll = useRef(false);
+      const scrollCommitTimer = useRef<ReturnType<typeof setTimeout>>();
 
-      useMemo(() => {
+      useEffect(() => {
         textareaDomRef.current = state.textareaWarp;
-        if (state.textareaWarp) {
-          state.textareaWarp.addEventListener('mouseover', () => {
-            active.current = 'text';
-          });
-          state.textareaWarp.addEventListener('mouseleave', () => {
-            active.current = 'preview';
-          });
-        }
+        const warp = state.textareaWarp;
+        if (!warp) return;
+        const activateText = () => {
+          active.current = 'text';
+        };
+        const activatePreview = () => {
+          active.current = 'preview';
+        };
+        warp.addEventListener('mouseover', activateText);
+        warp.addEventListener('mouseleave', activatePreview);
+        return () => {
+          warp.removeEventListener('mouseover', activateText);
+          warp.removeEventListener('mouseleave', activatePreview);
+        };
       }, [state.textareaWarp]);
 
-      const handleScroll = (e: React.UIEvent<HTMLDivElement>, type: 'text' | 'preview') => {
+      useEffect(() => () => clearTimeout(scrollCommitTimer.current), []);
+
+      const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>, type: 'text' | 'preview') => {
         if (!enableScrollRef.current) return;
         const textareaDom = textareaDomRef.current;
         const previewDom = previewRef.current ? previewRef.current : undefined;
@@ -186,19 +224,39 @@ export function createMDEditor<
           } else if (active.current === 'preview') {
             scrollTop = previewDom.scrollTop || 0;
           }
-          dispatch({ scrollTop });
+          clearTimeout(scrollCommitTimer.current);
+          scrollCommitTimer.current = setTimeout(() => dispatch({ scrollTop }), SCROLL_COMMIT_DELAY);
         }
-      };
+        // `dispatch` from useReducer is stable and everything else is read from refs.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
 
       const previewClassName = `${prefixCls}-preview ${previewOptions.className || ''}`;
-      const handlePreviewScroll = (e: React.UIEvent<HTMLDivElement, UIEvent>) => handleScroll(e, 'preview');
+      const handlePreviewScroll = useCallback(
+        (e: React.UIEvent<HTMLDivElement, UIEvent>) => handleScroll(e, 'preview'),
+        [handleScroll],
+      );
+      const handleTextScroll = useCallback(
+        (e: React.UIEvent<HTMLDivElement>) => handleScroll(e, 'text'),
+        [handleScroll],
+      );
+      const markdownValue = state.markdown || '';
+      const deferredMarkdown = useDeferredValueCompat(markdownValue);
+      const isLargeDocument = markdownValue.length > LARGE_DOCUMENT_SIZE;
+      const [settledMarkdown, setSettledMarkdown] = useState(markdownValue);
+      useEffect(() => {
+        if (!isLargeDocument) return;
+        const timer = setTimeout(() => setSettledMarkdown(deferredMarkdown), LARGE_DOCUMENT_PREVIEW_DELAY);
+        return () => clearTimeout(timer);
+      }, [deferredMarkdown, isLargeDocument]);
+      const previewSource = isLargeDocument ? settledMarkdown : deferredMarkdown;
       let mdPreview = useMemo(
         () => (
           <div ref={previewRef} className={previewClassName}>
-            <PreviewComponent {...previewOptions} onScroll={handlePreviewScroll} source={state.markdown || ''} />
+            <PreviewComponent {...previewOptions} onScroll={handlePreviewScroll} source={previewSource} />
           </div>
         ),
-        [previewClassName, previewOptions, state.markdown],
+        [previewClassName, previewOptions, handlePreviewScroll, previewSource],
       );
       const preview = components?.preview && components?.preview(state.markdown || '', state, dispatch);
       if (preview && React.isValidElement(preview)) {
@@ -210,7 +268,12 @@ export function createMDEditor<
       }
 
       const containerStyle = { ...other.style, height: state.height || '100%' };
-      const containerClick = () => dispatch({ barPopup: { ...setGroupPopFalse(state.barPopup) } });
+      const containerClick = () => {
+        // Only re-render when a popup is actually open.
+        if (state.barPopup && Object.values(state.barPopup).some(Boolean)) {
+          dispatch({ barPopup: { ...setGroupPopFalse(state.barPopup) } });
+        }
+      };
       const dragBarChange = (newHeight: number) => dispatch({ height: newHeight });
 
       const changeHandle = (evn: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -219,7 +282,7 @@ export function createMDEditor<
           textareaProps.onChange(evn);
         }
         if (state.textarea && state.textarea instanceof HTMLTextAreaElement && onStatistics) {
-          const obj = new TextAreaCommandOrchestrator(state.textarea!);
+          const obj = state.commandOrchestrator || new TextAreaCommandOrchestrator(state.textarea);
           const objState = (obj.getState() || {}) as TextState;
           onStatistics({
             ...objState,
@@ -228,8 +291,10 @@ export function createMDEditor<
           });
         }
       };
+
+      const contextValue = useMemo(() => ({ ...state, dispatch }), [state]);
       return (
-        <EditorContext.Provider value={{ ...state, dispatch }}>
+        <EditorContext.Provider value={contextValue}>
           <div ref={container} className={cls} {...other} onClick={containerClick} style={containerStyle}>
             <ToolbarVisibility
               hideToolbar={hideToolbar}
@@ -247,7 +312,7 @@ export function createMDEditor<
                   {...textareaProps}
                   onChange={changeHandle}
                   renderTextarea={components?.textarea || renderTextarea}
-                  onScroll={(e: React.UIEvent<HTMLDivElement>) => handleScroll(e, 'text')}
+                  onScroll={handleTextScroll}
                 />
               )}
               {/(live|preview)/.test(state.preview || '') && mdPreview}
